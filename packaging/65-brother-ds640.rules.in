@@ -1,0 +1,2 @@
+# Brother DS-640 (04f9:0468): persistent access for the unprivileged daemon.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04f9", ATTR{idProduct}=="0468", OWNER="@INSTALL_USER@", MODE="0660", ENV{libsane_matched}="yes", TAG+="uaccess"

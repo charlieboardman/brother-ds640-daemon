@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brother-ds640-daemon"
+version = "1.0.0"
+description = "Always-ready scan ingestion daemon for the Brother DS-640"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Brother DS-640 daemon contributors"}]
+dependencies = [
+    "img2pdf>=0.5",
+    "Pillow>=9",
+    "tomli>=2; python_version < '3.11'",
+]
+
+[project.scripts]
+ds640 = "ds640_daemon.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

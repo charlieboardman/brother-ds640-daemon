@@ -1,0 +1,30 @@
+# Brother DS-640 daemon configuration
+
+[scanner]
+# USB identity; this follows the scanner across ports and reconnects.
+vendor_id = "04f9"
+product_id = "0468"
+resolution = 300
+# Empty strings let Brother's backend choose its device defaults.
+mode = ""
+source = ""
+image_format = "png"
+extra_args = []
+poll_seconds = 0.25
+empty_retry_seconds = 2.0
+session_restart_seconds = 1.0
+part_settle_seconds = 5.0
+atcn_timeout = 7200
+atcn_feed_delay = 30
+
+[output]
+directory = "~/Scans/Inbox"
+filename_prefix = "scan"
+keep_images = false
+
+[runtime]
+driver_directory = "~/.local/share/brother-ds640/driver/opt/brother/scanner/brscan5"
+tap_library = "~/.local/lib/brother-ds640/libds640_atcn.so"
+state_directory = "~/.local/state/brother-ds640"
+quiet = true
+cleanup_days = 7
