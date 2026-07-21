@@ -8,9 +8,6 @@ resolution = 300
 # Empty strings let Brother's backend choose its device defaults.
 mode = ""
 source = ""
-# Crop each scan to the detected sheet size. Keep this enabled for receipts,
-# business cards, and mixed-size documents.
-auto_document_size = true
 image_format = "png"
 extra_args = []
 poll_seconds = 0.25
