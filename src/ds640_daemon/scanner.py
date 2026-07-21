@@ -165,6 +165,8 @@ class ScanDaemon:
             command.extend(["--mode", scanner.mode])
         if scanner.source:
             command.extend(["--source", scanner.source])
+        if scanner.auto_document_size:
+            command.append("--AutoDocumentSize=yes")
         command.extend(scanner.extra_args)
         return command
 

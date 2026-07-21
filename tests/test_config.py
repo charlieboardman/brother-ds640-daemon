@@ -17,6 +17,7 @@ class ConfigTests(unittest.TestCase):
             config = Config.load(path)
 
             self.assertEqual(300, config.scanner.resolution)
+            self.assertTrue(config.scanner.auto_document_size)
             self.assertEqual("~/My Scans", config.output.directory)
             self.assertEqual(("png", 5.0), (config.scanner.image_format, config.scanner.part_settle_seconds))
 
@@ -26,6 +27,14 @@ class ConfigTests(unittest.TestCase):
             path.write_text("[output]\nunknown = true\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "Unknown configuration keys"):
                 Config.load(path)
+
+    def test_existing_config_gets_auto_document_size_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.toml"
+            path.write_text('[output]\ndirectory = "~/Scans/Inbox"\n', encoding="utf-8")
+            config = Config.load(path)
+
+            self.assertTrue(config.scanner.auto_document_size)
 
     def test_output_path_expands_home_and_environment(self) -> None:
         with patch.dict(os.environ, {"SCAN_ROOT": "/tmp/scanner-test"}):

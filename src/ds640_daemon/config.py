@@ -36,6 +36,7 @@ class ScannerConfig:
     resolution: int = 300
     mode: str = ""
     source: str = ""
+    auto_document_size: bool = True
     image_format: str = "png"
     extra_args: tuple[str, ...] = ()
     poll_seconds: float = 0.25
@@ -149,6 +150,9 @@ resolution = 300
 # Empty strings let Brother's backend choose its device defaults.
 mode = ""
 source = ""
+# Crop each scan to the detected sheet size. Keep this enabled for receipts,
+# business cards, and mixed-size documents.
+auto_document_size = true
 image_format = "png"
 extra_args = []
 poll_seconds = 0.25

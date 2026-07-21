@@ -78,6 +78,7 @@ It is ordinary TOML. The main settings are:
 resolution = 300
 mode = ""
 source = ""
+auto_document_size = true
 extra_args = []
 part_settle_seconds = 5.0
 
@@ -90,6 +91,25 @@ keep_images = false
 An empty mode or source uses Brother's device default. Values exposed by this
 model include `24bit Color[Fast]`, `Black & White`, `True Gray`, and
 `Gray[Error Diffusion]`.
+
+### Receipts and other small documents
+
+Automatic document-size detection is enabled by default, so the PDF is cropped
+to a receipt, business card, or other small sheet instead of always being
+8.5 x 14 inches. Set `auto_document_size = false` only if you need the full
+scan area.
+
+The DS-640's feeder is left-aligned. Put a small document against the left edge
+of the feeder slot and move the document guide against its right edge. Brother
+recommends using a DS-series Carrier Sheet for receipts, clippings, photos, and
+other non-standard or flimsy originals: place the receipt at the carrier
+sheet's top-left corner, then feed the carrier sheet header-first and
+left-aligned. Automatic sizing controls the output crop; it cannot make a
+receipt that misses the physical feed sensor engage the rollers.
+
+If automatic sizing removes part of a document, clean the glass strips and
+rollers and calibrate the scanner. As a temporary workaround, disable
+`auto_document_size`.
 
 After editing the file, restart the service:
 

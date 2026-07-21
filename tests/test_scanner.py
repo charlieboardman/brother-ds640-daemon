@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from ds640_daemon.config import Config, ScannerConfig
 from ds640_daemon.scanner import ScanDaemon
 
 
@@ -45,6 +46,23 @@ class ImageRecoveryTests(unittest.TestCase):
             assert match is not None
             self.assertAlmostEqual(61.2, float(match.group(1)), places=1)
             self.assertAlmostEqual(100.8, float(match.group(2)), places=1)
+
+
+class ScanCommandTests(unittest.TestCase):
+    @staticmethod
+    def daemon(scanner: ScannerConfig) -> ScanDaemon:
+        daemon = ScanDaemon.__new__(ScanDaemon)
+        daemon.config = Config(scanner=scanner)
+        return daemon
+
+    def test_auto_document_size_is_enabled_by_default(self) -> None:
+        command = self.daemon(ScannerConfig())._scanimage_command(Path("/tmp/job"), 0)
+        self.assertIn("--AutoDocumentSize=yes", command)
+
+    def test_auto_document_size_can_be_disabled(self) -> None:
+        scanner = ScannerConfig(auto_document_size=False)
+        command = self.daemon(scanner)._scanimage_command(Path("/tmp/job"), 0)
+        self.assertNotIn("--AutoDocumentSize=yes", command)
 
 
 if __name__ == "__main__":
