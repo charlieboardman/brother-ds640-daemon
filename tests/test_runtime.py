@@ -4,11 +4,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ds640_daemon.config import Config
-from ds640_daemon.runtime import discover_usb
+from ds640_daemon.config import Config, RuntimeConfig
+from ds640_daemon.runtime import DRIVER_LIBRARIES, build_runtime_command, discover_usb
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_runtime_needs_no_shim_and_clears_inherited_preload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            driver = root / 'driver'
+            driver.mkdir()
+            for library in DRIVER_LIBRARIES:
+                (driver / library).touch()
+            config = Config(runtime=RuntimeConfig(driver_directory=str(driver),
+                                                   state_directory=str(root / 'state'),
+                                                   tap_library=str(root / 'nonexistent.so')))
+            command = build_runtime_command(config, ['scanimage', '--help'])
+            self.assertIn('--die-with-parent', command)
+            index = command.index('--unsetenv')
+            self.assertEqual('LD_PRELOAD', command[index + 1])
+            self.assertFalse(any('DS640_USB_TAP' in arg for arg in command))
+
     def test_discovers_scanner_without_hardcoded_port(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

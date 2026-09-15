@@ -95,11 +95,8 @@ def validate_host_dependencies() -> list[str]:
 
 def ensure_runtime(config: Config) -> RuntimePaths:
     driver = config.runtime.driver_path
-    tap = config.runtime.tap_path
     if not driver.is_dir():
         raise FileNotFoundError(f"Brother driver directory not found: {driver}")
-    if not tap.is_file():
-        raise FileNotFoundError(f"ATCN preload library not found: {tap}")
 
     root = config.runtime.state_path / "runtime"
     sane_config = root / "sane.d"
@@ -138,8 +135,6 @@ def _symlink(target: Path, link: Path) -> None:
 def build_runtime_command(
     config: Config,
     command: list[str],
-    *,
-    atcn: bool = False,
 ) -> list[str]:
     paths = ensure_runtime(config)
     driver = config.runtime.driver_path
@@ -148,17 +143,7 @@ def build_runtime_command(
         "SANE_CONFIG_DIR": str(paths.sane_config),
         "LD_LIBRARY_PATH": f"{paths.sane_libraries}:{driver}",
     }
-    if atcn:
-        environment.update(
-            {
-                "LD_PRELOAD": str(config.runtime.tap_path),
-                "DS640_USB_TAP_PATCH_ATCN": "1",
-                "DS640_USB_TAP_ATTO": str(config.scanner.atcn_timeout),
-                "DS640_USB_TAP_ATFD": str(config.scanner.atcn_feed_delay),
-            }
-        )
-
-    result = ["bwrap", "--tmpfs", "/"]
+    result = ["bwrap", "--die-with-parent", "--unsetenv", "LD_PRELOAD", "--tmpfs", "/"]
     for path in ("/usr", "/lib", "/lib64", "/bin", "/sbin"):
         if Path(path).exists():
             result.extend(["--ro-bind", path, path])
@@ -193,12 +178,11 @@ def run_runtime(
     config: Config,
     command: list[str],
     *,
-    atcn: bool = False,
     capture_output: bool = False,
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        build_runtime_command(config, command, atcn=atcn),
+        build_runtime_command(config, command),
         check=False,
         capture_output=capture_output,
         text=True,
@@ -210,12 +194,11 @@ def popen_runtime(
     config: Config,
     command: list[str],
     *,
-    atcn: bool = False,
     stdout: int | IO[str] | None = None,
     stderr: int | IO[str] | None = None,
 ) -> subprocess.Popen[str]:
     return subprocess.Popen(
-        build_runtime_command(config, command, atcn=atcn),
+        build_runtime_command(config, command),
         text=True,
         stdout=stdout,
         stderr=stderr,

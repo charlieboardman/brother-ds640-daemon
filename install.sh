@@ -35,7 +35,6 @@ INSTALL_COMMITTED=0
 SERVICE_WAS_ACTIVE=0
 DRIVER_SWAPPED=0
 VENV_SWAPPED=0
-LIB_SWAPPED=0
 driver_stage=""
 venv_stage=""
 venv_new_target=""
@@ -44,7 +43,6 @@ venv_previous_was_directory=0
 rule_tmp=""
 driver_backup="$APP_HOME/.driver-rollback.$$"
 venv_backup="$APP_HOME/.venv-rollback.$$"
-lib_backup="$LIB_DIR/.libds640_atcn-rollback.$$.so"
 
 usage() {
   cat <<'EOF'
@@ -164,7 +162,7 @@ case "${ID:-}" in
 esac
 
 missing_commands=()
-for command in python3 bwrap scanimage gcc dpkg-deb sha256sum udevadm systemctl; do
+for command in python3 bwrap scanimage dpkg-deb sha256sum udevadm systemctl; do
   command -v "$command" >/dev/null 2>&1 || missing_commands+=("$command")
 done
 if command -v python3 >/dev/null 2>&1 && ! python3 -m venv --help >/dev/null 2>&1; then
@@ -176,7 +174,7 @@ if ((${#missing_commands[@]})); then
   if ! confirm "Install required Debian packages now?"; then exit 1; fi
   need_sudo " and system dependencies"
   run_sudo apt-get update
-  run_sudo apt-get install -y python3 python3-venv python3-pip bubblewrap sane-utils usbutils gcc libc6-dev dpkg udev
+  run_sudo apt-get install -y python3 python3-venv python3-pip bubblewrap sane-utils usbutils dpkg udev
 fi
 
 if [[ ! -f "$DRIVER_PACKAGE" ]]; then
@@ -214,7 +212,6 @@ if [[ $DRY_RUN -eq 0 ]]; then
     if [[ -n "${venv_stage:-}" ]]; then rm -rf "$venv_stage"; fi
     if [[ -n "${rule_tmp:-}" ]]; then rm -f "$rule_tmp"; fi
     rm -f "$APP_HOME/.venv-link-new.$$"
-    rm -f "$LIB_DIR/libds640_atcn.so.new"
     if [[ $INSTALL_COMMITTED -eq 0 ]]; then
       echo "Installation failed; restoring the previous application." >&2
       if [[ $DRIVER_SWAPPED -eq 1 ]]; then
@@ -232,10 +229,6 @@ if [[ $DRY_RUN -eq 0 ]]; then
           fi
         fi
       fi
-      if [[ $LIB_SWAPPED -eq 1 ]]; then
-        rm -f "$LIB_DIR/libds640_atcn.so"
-        if [[ -f "$lib_backup" ]]; then mv "$lib_backup" "$LIB_DIR/libds640_atcn.so"; fi
-      fi
       if [[ $SERVICE_WAS_ACTIVE -eq 1 ]]; then
         systemctl --user start "$SERVICE" >/dev/null 2>&1 || true
       fi
@@ -252,11 +245,8 @@ if [[ $DRY_RUN -eq 0 ]]; then
   venv_new_target="$venv_stage"
   python3 -m venv "$venv_stage"
   "$venv_stage/bin/python" -m pip install --disable-pip-version-check --upgrade "$ROOT_DIR"
-  gcc -shared -fPIC -O2 -Wall -Wextra -Werror \
-    -o "$LIB_DIR/libds640_atcn.so.new" "$ROOT_DIR/native/libusb_atcn.c" -ldl
 
   rm -rf "$driver_backup" "$venv_backup"
-  rm -f "$lib_backup"
   if [[ -d "$APP_HOME/driver" ]]; then mv "$APP_HOME/driver" "$driver_backup"; fi
   mv "$driver_stage" "$APP_HOME/driver"
   driver_stage=""
@@ -274,15 +264,9 @@ if [[ $DRY_RUN -eq 0 ]]; then
   venv_stage=""
   VENV_SWAPPED=1
 
-  if [[ -f "$LIB_DIR/libds640_atcn.so" ]]; then
-    mv "$LIB_DIR/libds640_atcn.so" "$lib_backup"
-  fi
-  mv "$LIB_DIR/libds640_atcn.so.new" "$LIB_DIR/libds640_atcn.so"
-  LIB_SWAPPED=1
 else
   echo "+ dpkg-deb -x $DRIVER_PACKAGE $APP_HOME/driver"
   echo "+ build isolated virtual environment at $VENV"
-  echo "+ compile $LIB_DIR/libds640_atcn.so"
 fi
 
 run ln -sfn "$DS640" "$BIN_DIR/ds640"
@@ -334,7 +318,6 @@ if [[ $DRY_RUN -eq 0 ]]; then
         "$venv_previous_target" != "$venv_new_target" ]]; then
     rm -rf "$venv_previous_target"
   fi
-  rm -f "$lib_backup"
 fi
 
 echo

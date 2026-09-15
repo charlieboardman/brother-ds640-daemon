@@ -55,14 +55,14 @@ class ScanCommandTests(unittest.TestCase):
         daemon.config = Config(scanner=scanner)
         return daemon
 
-    def test_auto_document_size_is_not_sent(self) -> None:
+    def test_auto_document_size_is_sent(self) -> None:
         command = self.daemon(ScannerConfig())._scanimage_command(Path("/tmp/job"), 0)
-        self.assertNotIn("--AutoDocumentSize=yes", command)
+        self.assertIn("--AutoDocumentSize=yes", command)
 
-    def test_version_1_1_0_auto_size_config_is_safely_ignored(self) -> None:
-        scanner = ScannerConfig(auto_document_size=True)
+    def test_auto_document_size_can_be_disabled(self) -> None:
+        scanner = ScannerConfig(auto_document_size=False)
         command = self.daemon(scanner)._scanimage_command(Path("/tmp/job"), 0)
-        self.assertNotIn("--AutoDocumentSize=yes", command)
+        self.assertIn("--AutoDocumentSize=no", command)
 
 
 if __name__ == "__main__":

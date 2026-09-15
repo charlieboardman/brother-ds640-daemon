@@ -36,16 +36,15 @@ class ScannerConfig:
     resolution: int = 300
     mode: str = ""
     source: str = ""
-    # Retained for compatibility with the short-lived 1.1.0 config. Brother's
-    # auto-size mode stalls image transfer when combined with ATCN on a DS-640,
-    # so the daemon deliberately ignores this value.
-    auto_document_size: bool = False
+    auto_document_size: bool = True
+    scan_timeout_seconds: float = 60.0
     image_format: str = "png"
     extra_args: tuple[str, ...] = ()
     poll_seconds: float = 0.25
     empty_retry_seconds: float = 2.0
     session_restart_seconds: float = 1.0
     part_settle_seconds: float = 5.0
+    # Accepted for compatibility with old config files; unused.
     atcn_timeout: int = 7200
     atcn_feed_delay: int = 30
 
@@ -119,8 +118,10 @@ class Config:
         for name in ("poll_seconds", "empty_retry_seconds", "part_settle_seconds"):
             if getattr(self.scanner, name) < 0:
                 raise ValueError(f"scanner.{name} must not be negative")
-        if self.scanner.atcn_timeout <= 0 or self.scanner.atcn_feed_delay < 0:
-            raise ValueError("scanner.atcn_timeout must be positive and atcn_feed_delay non-negative")
+        if self.scanner.scan_timeout_seconds <= 0:
+            raise ValueError("scanner.scan_timeout_seconds must be positive")
+        if self.scanner.auto_document_size and self.scanner.resolution > 400:
+            raise ValueError("Automatic sizing requires resolution <= 400 DPI on the DS-640")
         if self.runtime.cleanup_days < 1:
             raise ValueError("runtime.cleanup_days must be at least 1")
         if not self.output.filename_prefix or "/" in self.output.filename_prefix:
@@ -153,15 +154,14 @@ resolution = 300
 # Empty strings let Brother's backend choose its device defaults.
 mode = ""
 source = ""
+auto_document_size = true
+scan_timeout_seconds = 60.0
 image_format = "png"
 extra_args = []
 poll_seconds = 0.25
 empty_retry_seconds = 2.0
 session_restart_seconds = 1.0
 part_settle_seconds = 5.0
-# Undocumented Brother ATCN wait parameters.
-atcn_timeout = 7200
-atcn_feed_delay = 30
 
 [output]
 directory = "{output}"
@@ -170,7 +170,6 @@ keep_images = false
 
 [runtime]
 driver_directory = "{runtime.driver_directory}"
-tap_library = "{runtime.tap_library}"
 state_directory = "{runtime.state_directory}"
 quiet = true
 cleanup_days = 7

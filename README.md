@@ -3,9 +3,10 @@
 This Linux daemon keeps a USB-connected Brother DS-640 awake, automatically
 grabs an inserted sheet, and writes a PDF without opening a scanning app.
 
-It uses Brother's own undocumented auto-continuous (`ATCN`) protocol mode. The
-scanner is identified by USB vendor/product ID—not by a bus number or physical
-port—so reconnecting it elsewhere does not require reconfiguration.
+It polls Brother's paper-presence sensor, starts one normal scan when a sheet
+is inserted, and returns to waiting. Normal scans use automatic document sizing
+to remove the unused scanner area. No ATCN protocol patch or preload shim is
+needed. USB vendor/product identity follows the scanner across ports.
 
 ## Supported systems
 
@@ -37,7 +38,7 @@ The installer:
 2. offers to install missing Debian packages;
 3. verifies the bundled Brother driver checksum and license;
 4. extracts the driver privately under `~/.local/share/`;
-5. builds the small ATCN protocol shim;
+5. installs the paper-sensor worker and scan daemon;
 6. creates the editable configuration;
 7. discovers the scanner on any USB port and runs a health check;
 8. installs and starts a systemd user service.
@@ -78,6 +79,8 @@ It is ordinary TOML. The main settings are:
 resolution = 300
 mode = ""
 source = ""
+auto_document_size = true
+scan_timeout_seconds = 60.0
 extra_args = []
 part_settle_seconds = 5.0
 
@@ -93,10 +96,23 @@ model include `24bit Color[Fast]`, `Black & White`, `True Gray`, and
 
 ### Receipts and other small documents
 
-Brother's automatic document-size option is intentionally not used. On the
-DS-640 it can pull a page into position but then stall image transfer when
-combined with the ATCN continuous-feed mode that keeps this daemon waiting.
-The output therefore uses Brother's normal full scan area.
+Automatic document sizing is enabled by default. It works with ordinary scans;
+version 1.2 replaces the old ATCN continuous-feed workaround that prevented it.
+Set `auto_document_size = false` if you deliberately need the full scan area.
+Auto sizing requires 400 DPI or lower on this model; the default is 300 DPI.
+
+The paper query uses an undocumented API in the bundled, checksum-verified
+brscan5 1.5.1-0 driver. A separate worker contains driver failures and polls at
+`poll_seconds` (minimum 0.1 seconds). It closes its device handle before the
+one-page scan starts. Idle query workers are renewed every 30 seconds, and USB
+discovery is repeated between workers and scans. Query errors are retried;
+unknown sensor states never trigger a scan. Scans time out after
+`scan_timeout_seconds`. After a failed scan, remove the sheet before reinserting
+it: the daemon waits for the feeder to clear instead of repeatedly feeding a jam.
+
+Old `atcn_timeout`, `atcn_feed_delay`, and `tap_library` config keys are accepted
+for upgrade compatibility but are unused. `part_settle_seconds` applies only to
+recovery of files left by older ATCN versions.
 
 The DS-640's feeder is left-aligned. Put a small document against the left edge
 of the feeder slot and move the document guide against its right edge. Brother
@@ -157,8 +173,9 @@ wrapper.
 - Empty-feeder and disconnected-device states are retried indefinitely.
 - Brother's ATCN session is automatically re-armed when it expires.
 - Completed PDFs are written to a hidden temporary file and atomically renamed.
-- The active ATCN page is recoverable even though Brother leaves its PNG stream
-  without a final trailer while waiting for another sheet.
+- Only completed normal scans are published. Partial failed scans remain in the
+  recovery directory and are not silently accepted as complete receipts.
+- Recovery of unfinished PNG streams from older ATCN versions is retained.
 - Delivery markers and deterministic filenames prevent duplicates after a
   daemon crash.
 - Undelivered scan data is retained rather than silently deleted.

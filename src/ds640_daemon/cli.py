@@ -63,9 +63,7 @@ def command_doctor(args: argparse.Namespace) -> int:
     print(f"dependencies={'ok' if not missing else 'missing:' + ','.join(missing)}")
     failures += bool(missing)
     print(f"driver={config.runtime.driver_path} exists={config.runtime.driver_path.is_dir()}")
-    print(f"atcn_library={config.runtime.tap_path} exists={config.runtime.tap_path.is_file()}")
     failures += not config.runtime.driver_path.is_dir()
-    failures += not config.runtime.tap_path.is_file()
     devices = discover_usb(config)
     print(f"usb_matches={len(devices)}")
     for device in devices:
@@ -75,7 +73,7 @@ def command_doctor(args: argparse.Namespace) -> int:
     if len(devices) > 1:
         failures += 1
 
-    if not missing and config.runtime.driver_path.is_dir() and config.runtime.tap_path.is_file():
+    if not missing and config.runtime.driver_path.is_dir():
         try:
             probe = run_runtime(
                 config,

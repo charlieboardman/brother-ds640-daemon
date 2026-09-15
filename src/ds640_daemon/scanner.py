@@ -7,6 +7,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from threading import Event
@@ -34,6 +35,7 @@ class ScanDaemon:
         del lock_handle  # The descriptor remains open for this process lifetime.
         self.cleanup_temporary_files()
         total_pages = self.recover_jobs()
+        require_empty = False
         self.status("ready", output=self.config.output.path)
 
         while not stop_event.is_set():
@@ -57,9 +59,23 @@ class ScanDaemon:
                 stop_event.wait(10)
                 continue
 
+            self.status("waiting_for_removal" if require_empty else "waiting_for_sheet")
+            presence = self._wait_for_paper(stop_event, require_empty=require_empty)
+            if stop_event.is_set():
+                break
+            if presence != 0:
+                if presence != 2:
+                    self.status("paper_sensor_error", exit=presence)
+                stop_event.wait(self.config.scanner.empty_retry_seconds)
+                continue
+            if require_empty:
+                require_empty = False
+                continue
+
             remaining = max_pages - total_pages if max_pages else 0
             pages, exit_code = self._run_session(stop_event, max_pages=remaining)
             total_pages += pages
+            require_empty = exit_code != 0 or pages == 0
             if stop_event.is_set():
                 break
             if pages:
@@ -84,69 +100,64 @@ class ScanDaemon:
         self._lock_handle = handle
         return handle
 
+    def _wait_for_paper(self, stop_event: Event, *, require_empty: bool = False) -> int:
+        command = [sys.executable, "-m", "ds640_daemon.presence",
+                   "--interval", str(max(0.1, self.config.scanner.poll_seconds))]
+        if require_empty:
+            command.append("--empty")
+        process = popen_runtime(self.config, command, stdout=subprocess.DEVNULL)
+        return self._wait_process(process, stop_event, timeout=40.0)
+
+    def _wait_process(self, process, stop_event: Event, *, timeout: float) -> int:
+        deadline = time.monotonic() + timeout
+        try:
+            while process.poll() is None:
+                if stop_event.wait(0.1):
+                    return 130
+                if time.monotonic() >= deadline:
+                    self.event("process_timeout", seconds=timeout)
+                    return 124
+            return process.returncode
+        finally:
+            self._terminate(process)
+
     def _run_session(self, stop_event: Event, *, max_pages: int = 0) -> tuple[int, int]:
         session_id = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         job = self.paths.jobs / f"session-{session_id}"
         job.mkdir(parents=True, exist_ok=False)
-        command = self._scanimage_command(job, max_pages)
+        # Distinguish new, complete-page scans from recoverable legacy ATCN jobs.
+        (job / ".normal-scan").touch()
         stdio = subprocess.DEVNULL if self.config.runtime.quiet else None
-        process = popen_runtime(
-            self.config,
-            command,
-            atcn=True,
-            stdout=stdio,
-            stderr=stdio,
-        )
-        stable: dict[str, tuple[int, int, float]] = {}
-        processed: set[str] = set()
+        self.status("scanning")
+        process = popen_runtime(self.config, self._scanimage_command(job, 1),
+                                stdout=stdio, stderr=stdio)
+        exit_code = self._wait_process(process, stop_event,
+                                      timeout=self.config.scanner.scan_timeout_seconds)
         pages = 0
+        for image in self._images(job):
+            # scanimage renames .part only when the page is complete. Never
+            # publish a truncated new scan, even when it has stopped growing.
+            if image.name.endswith(".part") or not self._complete(image):
+                continue
+            output = self._deliver(image, job, session_id)
+            pages += 1
+            self.event("page_saved", file=output, page=pages)
+        if exit_code or not pages:
+            self.event("scan_failed", exit=exit_code, recovery_directory=job)
+        self._clean_delivered(job)
+        self._remove_empty(job)
+        return pages, exit_code
 
+    @staticmethod
+    def _complete(image: Path) -> bool:
         try:
-            while not stop_event.is_set():
-                for image in self._images(job):
-                    identity = self._identity(image)
-                    if identity in processed:
-                        if not self.config.output.keep_images and not image.name.endswith(".part"):
-                            image.unlink(missing_ok=True)
-                        continue
-                    if image.name.endswith(".part") and not self._part_ready(image, stable):
-                        continue
-                    output = self._deliver(image, job, session_id)
-                    processed.add(identity)
-                    pages += 1
-                    self.event("page_saved", file=output, page=pages)
-                    if max_pages and pages >= max_pages:
-                        self._terminate(process)
-                        break
-                if max_pages and pages >= max_pages:
-                    break
-                if process.poll() is not None:
-                    break
-                if stop_event.wait(self.config.scanner.poll_seconds):
-                    self._terminate(process)
-                    break
-
-            if stop_event.is_set():
-                self._terminate(process)
-
-            for image in self._images(job):
-                identity = self._identity(image)
-                if identity in processed:
-                    if not self.config.output.keep_images and not image.name.endswith(".part"):
-                        image.unlink(missing_ok=True)
-                    continue
-                if image.name.endswith(".part") and not self._recoverable(image):
-                    continue
-                output = self._deliver(image, job, session_id)
-                processed.add(identity)
-                pages += 1
-                self.event("page_saved_after_stop", file=output, page=pages)
-
-            return pages, process.returncode if process.returncode is not None else 0
-        finally:
-            self._terminate(process)
-            self._clean_delivered(job)
-            self._remove_empty(job)
+            with Image.open(image) as opened:
+                opened.verify()
+            with Image.open(image) as opened:
+                opened.load()
+            return True
+        except (OSError, ValueError, SyntaxError):
+            return False
 
     def _scanimage_command(self, job: Path, max_pages: int) -> list[str]:
         scanner = self.config.scanner
@@ -159,8 +170,8 @@ class ScanDaemon:
             "--resolution",
             str(scanner.resolution),
         ]
-        if max_pages:
-            command.append(f"--batch-count={max_pages}")
+        command.append("--batch-count=1")
+        command.append(f"--AutoDocumentSize={'yes' if scanner.auto_document_size else 'no'}")
         if scanner.mode:
             command.extend(["--mode", scanner.mode])
         if scanner.source:
@@ -176,22 +187,6 @@ class ScanDaemon:
     @staticmethod
     def _identity(image: Path) -> str:
         return image.name[:-5] if image.name.endswith(".part") else image.name
-
-    def _part_ready(self, image: Path, state: dict[str, tuple[int, int, float]]) -> bool:
-        try:
-            stat = image.stat()
-        except FileNotFoundError:
-            return False
-        identity = self._identity(image)
-        signature = (stat.st_size, stat.st_mtime_ns)
-        now = time.monotonic()
-        previous = state.get(identity)
-        if previous is None or previous[:2] != signature:
-            state[identity] = (*signature, now)
-            return False
-        if now - previous[2] < self.config.scanner.part_settle_seconds:
-            return False
-        return self._recoverable(image)
 
     @staticmethod
     def _recoverable(image: Path) -> bool:
@@ -267,6 +262,7 @@ class ScanDaemon:
             return 0
         for job in sorted(self.paths.jobs.glob("session-*")):
             session_id = job.name.removeprefix("session-")
+            normal_scan = (job / ".normal-scan").exists()
             for image in self._images(job):
                 identity = self._identity(image)
                 marker = job / f".{identity}.delivered"
@@ -282,6 +278,8 @@ class ScanDaemon:
                         continue
                     if not delivered_output.is_file():
                         marker.unlink(missing_ok=True)
+                if normal_scan and (image.name.endswith(".part") or not self._complete(image)):
+                    continue
                 if image.name.endswith(".part"):
                     try:
                         age = time.time() - image.stat().st_mtime
@@ -327,6 +325,8 @@ class ScanDaemon:
     @staticmethod
     def _remove_empty(job: Path) -> None:
         try:
+            if set(job.iterdir()) == {job / ".normal-scan"}:
+                (job / ".normal-scan").unlink()
             job.rmdir()
         except OSError:
             pass

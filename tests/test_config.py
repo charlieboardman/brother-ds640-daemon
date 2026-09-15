@@ -6,10 +6,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ds640_daemon.config import Config, render_config
+from ds640_daemon.config import Config, ScannerConfig, render_config
 
 
 class ConfigTests(unittest.TestCase):
+    def test_auto_size_resolution_and_timeout_limits(self):
+        with self.assertRaisesRegex(ValueError, '400 DPI'):
+            Config(scanner=ScannerConfig(resolution=600)).validate()
+        Config(scanner=ScannerConfig(resolution=600, auto_document_size=False)).validate()
+        with self.assertRaisesRegex(ValueError, 'timeout'):
+            Config(scanner=ScannerConfig(scan_timeout_seconds=0)).validate()
+
     def test_rendered_default_config_loads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.toml"
@@ -17,7 +24,7 @@ class ConfigTests(unittest.TestCase):
             config = Config.load(path)
 
             self.assertEqual(300, config.scanner.resolution)
-            self.assertFalse(config.scanner.auto_document_size)
+            self.assertTrue(config.scanner.auto_document_size)
             self.assertEqual("~/My Scans", config.output.directory)
             self.assertEqual(("png", 5.0), (config.scanner.image_format, config.scanner.part_settle_seconds))
 
@@ -34,7 +41,7 @@ class ConfigTests(unittest.TestCase):
             path.write_text('[output]\ndirectory = "~/Scans/Inbox"\n', encoding="utf-8")
             config = Config.load(path)
 
-            self.assertFalse(config.scanner.auto_document_size)
+            self.assertTrue(config.scanner.auto_document_size)
 
     def test_output_path_expands_home_and_environment(self) -> None:
         with patch.dict(os.environ, {"SCAN_ROOT": "/tmp/scanner-test"}):
