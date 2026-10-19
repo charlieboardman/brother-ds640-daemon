@@ -19,6 +19,8 @@ LIB_DIR="$HOME/.local/lib/$APP"
 BIN_DIR="$HOME/.local/bin"
 VENV="$APP_HOME/venv"
 DS640="$VENV/bin/ds640"
+SHIM_SOURCE="$ROOT_DIR/native/long_paper_shim.c"
+SHIM="$LIB_DIR/libds640_longpaper.so"
 
 OUTPUT_DIR="~/Scans/Inbox"
 DRIVER_PACKAGE="$DRIVER_DEFAULT"
@@ -162,7 +164,7 @@ case "${ID:-}" in
 esac
 
 missing_commands=()
-for command in python3 bwrap scanimage dpkg-deb sha256sum udevadm systemctl; do
+for command in python3 bwrap scanimage dpkg-deb sha256sum udevadm systemctl cc; do
   command -v "$command" >/dev/null 2>&1 || missing_commands+=("$command")
 done
 if command -v python3 >/dev/null 2>&1 && ! python3 -m venv --help >/dev/null 2>&1; then
@@ -174,7 +176,7 @@ if ((${#missing_commands[@]})); then
   if ! confirm "Install required Debian packages now?"; then exit 1; fi
   need_sudo " and system dependencies"
   run_sudo apt-get update
-  run_sudo apt-get install -y python3 python3-venv python3-pip bubblewrap sane-utils usbutils dpkg udev
+  run_sudo apt-get install -y python3 python3-venv python3-pip bubblewrap sane-utils usbutils dpkg udev gcc libc6-dev
 fi
 
 if [[ ! -f "$DRIVER_PACKAGE" ]]; then
@@ -201,6 +203,11 @@ fi
 
 need_sudo " and the persistent scanner udev rule"
 run mkdir -p "$APP_HOME" "$CONFIG_HOME/$APP" "$STATE_PATH" "$LIB_DIR" "$BIN_DIR"
+
+echo "+ cc -shared -fPIC -O2 -Wall -Wextra -o $SHIM $SHIM_SOURCE -ldl"
+if [[ $DRY_RUN -eq 0 ]]; then
+  cc -shared -fPIC -O2 -Wall -Wextra -o "$SHIM" "$SHIM_SOURCE" -ldl
+fi
 
 if [[ $DRY_RUN -eq 0 ]]; then
   if systemctl --user is-active --quiet "$SERVICE"; then SERVICE_WAS_ACTIVE=1; fi

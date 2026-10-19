@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
-from ds640_daemon.config import Config, OutputConfig, RuntimeConfig
+from ds640_daemon.config import Config, OutputConfig, RuntimeConfig, ScannerConfig
 from ds640_daemon.scanner import ScanDaemon
 
 
@@ -58,6 +58,35 @@ class LifecycleTests(unittest.TestCase):
         Image.new('RGB', (100, 80), 'white').save(job / 'page-0001.png', dpi=(300, 300))
         self.assertEqual(1, self.daemon.recover_jobs())
         self.assertEqual(0, self.daemon.recover_jobs())
+
+    def test_long_paper_scan_passes_shim_and_environment(self):
+        shim = self.root / 'libds640_longpaper.so'
+        shim.touch()
+        self.daemon.config = Config(
+            scanner=ScannerConfig(long_paper=True),
+            output=OutputConfig(directory=str(self.root / 'out')),
+            runtime=RuntimeConfig(state_directory=str(self.root),
+                                  long_paper_library=str(shim)),
+        )
+        calls = []
+
+        def spawn(config, command, **kwargs):
+            calls.append((command, kwargs))
+            template = next(arg.split('=', 1)[1] for arg in command
+                            if arg.startswith('--batch='))
+            path = Path(template % 1)
+            Image.new('RGB', (600, 900), 'white').save(path, format='PNG', dpi=(300, 300))
+            return Mock(poll=Mock(return_value=0), returncode=0)
+
+        with patch('ds640_daemon.scanner.popen_runtime', side_effect=spawn):
+            self.assertEqual((1, 0), self.daemon._run_session(Event()))
+
+        command, kwargs = calls[0]
+        self.assertEqual(shim, kwargs['preload'])
+        self.assertEqual('1', kwargs['environment']['DS640_LONG_PAPER_FORCE'])
+        self.assertEqual('24', kwargs['environment']['DS640_LONG_PAPER_TYPE'])
+        self.assertIn('-y', command)
+        self.assertIn('1828.8', command)
 
     def test_stop_terminates_worker_without_waiting_for_driver(self):
         stop = Event()

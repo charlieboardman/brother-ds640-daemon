@@ -9,13 +9,21 @@ resolution = 300
 mode = ""
 source = ""
 auto_document_size = true
-scan_timeout_seconds = 60.0
+scan_timeout_seconds = 180.0
 image_format = "png"
 extra_args = []
 poll_seconds = 0.25
 empty_retry_seconds = 2.0
 session_restart_seconds = 1.0
 part_settle_seconds = 5.0
+# Scan receipts and other documents up to 1828.8 mm (72 in).  The normal
+# brscan5 SANE frontend stops at 355.6 mm (14 in); the bundled shim enables
+# the DS-640's simplex long-paper mode.
+long_paper = false
+# 23 = long paper narrow (107.95 mm), 24 = long paper full width (215.9 mm).
+long_paper_paper_type = 24
+long_paper_width_mm = 215.9
+max_document_length_mm = 1828.8
 
 [output]
 directory = "~/Scans/Inbox"
@@ -24,6 +32,7 @@ keep_images = false
 
 [runtime]
 driver_directory = "~/.local/share/brother-ds640/driver/opt/brother/scanner/brscan5"
+long_paper_library = "~/.local/lib/brother-ds640/libds640_longpaper.so"
 state_directory = "~/.local/state/brother-ds640"
 quiet = true
 cleanup_days = 7

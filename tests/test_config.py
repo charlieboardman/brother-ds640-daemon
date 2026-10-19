@@ -28,6 +28,25 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual("~/My Scans", config.output.directory)
             self.assertEqual(("png", 5.0), (config.scanner.image_format, config.scanner.part_settle_seconds))
 
+    def test_long_paper_defaults_and_validation(self):
+        config = Config()
+        self.assertFalse(config.scanner.long_paper)
+        self.assertEqual(24, config.scanner.long_paper_paper_type)
+        self.assertAlmostEqual(1828.8, config.scanner.max_document_length_mm)
+        self.assertAlmostEqual(215.9, config.scanner.long_paper_width_mm)
+        Config(scanner=ScannerConfig(long_paper=True)).validate()
+        Config(scanner=ScannerConfig(long_paper=True, long_paper_paper_type=23,
+                                     long_paper_width_mm=107.95)).validate()
+        with self.assertRaisesRegex(ValueError, 'long_paper_paper_type'):
+            Config(scanner=ScannerConfig(long_paper_paper_type=25)).validate()
+        with self.assertRaisesRegex(ValueError, 'long_paper_width_mm'):
+            Config(scanner=ScannerConfig(long_paper_paper_type=23)).validate()
+        with self.assertRaisesRegex(ValueError, 'max_document_length_mm'):
+            Config(scanner=ScannerConfig(max_document_length_mm=2000)).validate()
+        with self.assertRaisesRegex(ValueError, '300 DPI'):
+            Config(scanner=ScannerConfig(long_paper=True, resolution=600,
+                                         auto_document_size=False)).validate()
+
     def test_unknown_configuration_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.toml"

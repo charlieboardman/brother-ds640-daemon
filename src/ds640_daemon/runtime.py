@@ -135,15 +135,24 @@ def _symlink(target: Path, link: Path) -> None:
 def build_runtime_command(
     config: Config,
     command: list[str],
+    *,
+    preload: Path | None = None,
+    environment: dict[str, str] | None = None,
 ) -> list[str]:
     paths = ensure_runtime(config)
     driver = config.runtime.driver_path
     brother_dir = driver.parent.parent
-    environment = {
+    runtime_environment = {
         "SANE_CONFIG_DIR": str(paths.sane_config),
         "LD_LIBRARY_PATH": f"{paths.sane_libraries}:{driver}",
     }
-    result = ["bwrap", "--die-with-parent", "--unsetenv", "LD_PRELOAD", "--tmpfs", "/"]
+    if environment:
+        runtime_environment.update(environment)
+    result = ["bwrap", "--die-with-parent", "--unsetenv", "LD_PRELOAD"]
+    if preload is not None:
+        result.extend(["--setenv", "LD_PRELOAD", str(preload)])
+    result.append("--tmpfs")
+    result.append("/")
     for path in ("/usr", "/lib", "/lib64", "/bin", "/sbin"):
         if Path(path).exists():
             result.extend(["--ro-bind", path, path])
@@ -168,7 +177,7 @@ def build_runtime_command(
             "/etc/opt/brother",
         ]
     )
-    for key, value in environment.items():
+    for key, value in runtime_environment.items():
         result.extend(["--setenv", key, value])
     result.extend(command)
     return result
@@ -180,9 +189,11 @@ def run_runtime(
     *,
     capture_output: bool = False,
     timeout: float | None = None,
+    preload: Path | None = None,
+    environment: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        build_runtime_command(config, command),
+        build_runtime_command(config, command, preload=preload, environment=environment),
         check=False,
         capture_output=capture_output,
         text=True,
@@ -196,9 +207,11 @@ def popen_runtime(
     *,
     stdout: int | IO[str] | None = None,
     stderr: int | IO[str] | None = None,
+    preload: Path | None = None,
+    environment: dict[str, str] | None = None,
 ) -> subprocess.Popen[str]:
     return subprocess.Popen(
-        build_runtime_command(config, command),
+        build_runtime_command(config, command, preload=preload, environment=environment),
         text=True,
         stdout=stdout,
         stderr=stderr,

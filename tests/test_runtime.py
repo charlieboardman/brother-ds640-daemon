@@ -25,6 +25,32 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual('LD_PRELOAD', command[index + 1])
             self.assertFalse(any('DS640_USB_TAP' in arg for arg in command))
 
+    def test_runtime_can_preload_long_paper_shim_and_set_scan_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            driver = root / 'driver'
+            driver.mkdir()
+            for library in DRIVER_LIBRARIES:
+                (driver / library).touch()
+            shim = root / 'libds640_longpaper.so'
+            shim.touch()
+            config = Config(runtime=RuntimeConfig(driver_directory=str(driver),
+                                                   state_directory=str(root / 'state')))
+            command = build_runtime_command(
+                config,
+                ['scanimage'],
+                preload=shim,
+                environment={'DS640_LONG_PAPER_FORCE': '1'},
+            )
+            setenv = [
+                (command[index], command[index + 1], command[index + 2])
+                for index in range(len(command) - 2)
+                if command[index] == '--setenv'
+            ]
+            self.assertIn(('--setenv', 'LD_PRELOAD', str(shim)), setenv)
+            self.assertIn(('--setenv', 'DS640_LONG_PAPER_FORCE', '1'), setenv)
+            self.assertLess(command.index('--unsetenv'), command.index('--setenv'))
+
     def test_discovers_scanner_without_hardcoded_port(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

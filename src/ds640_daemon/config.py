@@ -37,13 +37,20 @@ class ScannerConfig:
     mode: str = ""
     source: str = ""
     auto_document_size: bool = True
-    scan_timeout_seconds: float = 60.0
+    scan_timeout_seconds: float = 180.0
     image_format: str = "png"
     extra_args: tuple[str, ...] = ()
     poll_seconds: float = 0.25
     empty_retry_seconds: float = 2.0
     session_restart_seconds: float = 1.0
     part_settle_seconds: float = 5.0
+    # The brscan5 SANE frontend caps the normal scan height at 355.6 mm
+    # (14 in).  The DS-640 firmware supports up to 1828.8 mm (72 in) in
+    # simplex long-paper mode; the bundled shim exposes that path.
+    long_paper: bool = False
+    long_paper_paper_type: int = 24  # 23 = narrow, 24 = full width
+    long_paper_width_mm: float = 215.9
+    max_document_length_mm: float = 1828.8
     # Accepted for compatibility with old config files; unused.
     atcn_timeout: int = 7200
     atcn_feed_delay: int = 30
@@ -68,6 +75,9 @@ class RuntimeConfig:
         / "driver/opt/brother/scanner/brscan5"
     )
     tap_library: str = str(Path("~/.local/lib/brother-ds640/libds640_atcn.so").expanduser())
+    long_paper_library: str = str(
+        Path("~/.local/lib/brother-ds640/libds640_longpaper.so").expanduser()
+    )
     state_directory: str = str(
         _environment_path("XDG_STATE_HOME", "~/.local/state") / APP_NAME
     )
@@ -81,6 +91,10 @@ class RuntimeConfig:
     @property
     def tap_path(self) -> Path:
         return expand_path(self.tap_library)
+
+    @property
+    def long_paper_path(self) -> Path:
+        return expand_path(self.long_paper_library)
 
     @property
     def state_path(self) -> Path:
@@ -122,6 +136,18 @@ class Config:
             raise ValueError("scanner.scan_timeout_seconds must be positive")
         if self.scanner.auto_document_size and self.scanner.resolution > 400:
             raise ValueError("Automatic sizing requires resolution <= 400 DPI on the DS-640")
+        if self.scanner.long_paper_paper_type not in {23, 24}:
+            raise ValueError("scanner.long_paper_paper_type must be 23 (narrow) or 24 (full width)")
+        max_width_mm = 107.95 if self.scanner.long_paper_paper_type == 23 else 215.9
+        if not 0 < self.scanner.long_paper_width_mm <= max_width_mm:
+            raise ValueError(
+                "scanner.long_paper_width_mm must be between 0 and "
+                f"{max_width_mm} for paper type {self.scanner.long_paper_paper_type}"
+            )
+        if not 0 < self.scanner.max_document_length_mm <= 1828.8:
+            raise ValueError("scanner.max_document_length_mm must be between 0 and 1828.8")
+        if self.scanner.long_paper and self.scanner.resolution > 300:
+            raise ValueError("Long-paper scanning requires resolution <= 300 DPI on the DS-640")
         if self.runtime.cleanup_days < 1:
             raise ValueError("runtime.cleanup_days must be at least 1")
         if not self.output.filename_prefix or "/" in self.output.filename_prefix:
@@ -155,13 +181,20 @@ resolution = 300
 mode = ""
 source = ""
 auto_document_size = true
-scan_timeout_seconds = 60.0
+scan_timeout_seconds = 180.0
 image_format = "png"
 extra_args = []
 poll_seconds = 0.25
 empty_retry_seconds = 2.0
 session_restart_seconds = 1.0
 part_settle_seconds = 5.0
+# Let the DS-640 scan receipts and other documents up to 72 inches long.
+# Requires the bundled long-paper shim (installed by install.sh).
+long_paper = false
+# 23 = long paper narrow (107.95 mm), 24 = long paper full width (215.9 mm).
+long_paper_paper_type = 24
+long_paper_width_mm = 215.9
+max_document_length_mm = 1828.8
 
 [output]
 directory = "{output}"
@@ -170,6 +203,7 @@ keep_images = false
 
 [runtime]
 driver_directory = "{runtime.driver_directory}"
+long_paper_library = "{runtime.long_paper_library}"
 state_directory = "{runtime.state_directory}"
 quiet = true
 cleanup_days = 7

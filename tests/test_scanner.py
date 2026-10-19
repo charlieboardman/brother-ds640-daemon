@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from ds640_daemon.config import Config, ScannerConfig
 from ds640_daemon.scanner import ScanDaemon
@@ -26,6 +26,34 @@ class ImageRecoveryTests(unittest.TestCase):
             data = path.read_bytes()
             path.write_bytes(data[: int(len(data) * 0.9)])
             self.assertTrue(ScanDaemon._recoverable(path))
+
+    def test_long_paper_trim_removes_scanner_background(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "page.png"
+            picture = Image.new("RGB", (600, 900), (192, 192, 192))
+            draw = ImageDraw.Draw(picture)
+            draw.rectangle((20, 10, 220, 890), fill="white")
+            picture.save(image, format="PNG", dpi=(300, 300))
+
+            trimmed = ScanDaemon._trimmed_image(image, root, "page")
+
+            self.assertIsNotNone(trimmed)
+            assert trimmed is not None
+            with Image.open(trimmed) as result:
+                self.assertLess(result.width, 300)
+                self.assertGreater(result.height, 800)
+            trimmed.unlink()
+
+    def test_long_paper_trim_skips_full_width_page(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "page.png"
+            Image.new("RGB", (600, 900), "white").save(
+                image, format="PNG", dpi=(300, 300)
+            )
+
+            self.assertIsNone(ScanDaemon._trimmed_image(image, root, "page"))
 
     def test_recovered_pdf_is_atomic_and_preserves_dpi(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -63,6 +91,16 @@ class ScanCommandTests(unittest.TestCase):
         scanner = ScannerConfig(auto_document_size=False)
         command = self.daemon(scanner)._scanimage_command(Path("/tmp/job"), 0)
         self.assertIn("--AutoDocumentSize=no", command)
+
+    def test_long_paper_adds_scan_height(self) -> None:
+        scanner = ScannerConfig(long_paper=True)
+        command = self.daemon(scanner)._scanimage_command(Path("/tmp/job"), 0)
+        self.assertIn("-y", command)
+        self.assertIn("1828.8", command)
+
+    def test_normal_mode_does_not_add_long_paper_height(self) -> None:
+        command = self.daemon(ScannerConfig())._scanimage_command(Path("/tmp/job"), 0)
+        self.assertNotIn("-y", command)
 
 
 if __name__ == "__main__":

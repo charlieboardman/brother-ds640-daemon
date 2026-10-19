@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Event
 
 import img2pdf
-from PIL import Image, ImageFile
+from PIL import Image, ImageChops, ImageFile
 
 from .config import Config
 from .runtime import discover_usb, ensure_runtime, popen_runtime
@@ -28,6 +28,11 @@ class ScanDaemon:
         self.config = config
         self.paths = ensure_runtime(config)
         self._last_status: str | None = None
+        if config.scanner.long_paper and not config.runtime.long_paper_path.is_file():
+            raise FileNotFoundError(
+                f"Long-paper shim not found: {config.runtime.long_paper_path}. "
+                "Reinstall the daemon or set scanner.long_paper = false."
+            )
 
     def run(self, stop_event: Event, *, max_pages: int = 0) -> int:
         self.config.output.path.mkdir(parents=True, exist_ok=True)
@@ -129,8 +134,24 @@ class ScanDaemon:
         (job / ".normal-scan").touch()
         stdio = subprocess.DEVNULL if self.config.runtime.quiet else None
         self.status("scanning")
-        process = popen_runtime(self.config, self._scanimage_command(job, 1),
-                                stdout=stdio, stderr=stdio)
+        preload = None
+        environment = None
+        if self.config.scanner.long_paper:
+            preload = self.config.runtime.long_paper_path
+            environment = {
+                "DS640_LONG_PAPER_FORCE": "1",
+                "DS640_LONG_PAPER_TYPE": str(self.config.scanner.long_paper_paper_type),
+                "DS640_LONG_PAPER_WIDTH_MM": str(self.config.scanner.long_paper_width_mm),
+                "DS640_LONG_PAPER_HEIGHT_MM": str(self.config.scanner.max_document_length_mm),
+            }
+        process = popen_runtime(
+            self.config,
+            self._scanimage_command(job, 1),
+            stdout=stdio,
+            stderr=stdio,
+            preload=preload,
+            environment=environment,
+        )
         exit_code = self._wait_process(process, stop_event,
                                       timeout=self.config.scanner.scan_timeout_seconds)
         pages = 0
@@ -172,6 +193,8 @@ class ScanDaemon:
         ]
         command.append("--batch-count=1")
         command.append(f"--AutoDocumentSize={'yes' if scanner.auto_document_size else 'no'}")
+        if scanner.long_paper:
+            command.extend(["-y", str(scanner.max_document_length_mm)])
         if scanner.mode:
             command.extend(["--mode", scanner.mode])
         if scanner.source:
@@ -203,6 +226,56 @@ class ScanDaemon:
         finally:
             ImageFile.LOAD_TRUNCATED_IMAGES = old_setting
 
+    @staticmethod
+    def _trimmed_image(image: Path, job: Path, identity: str) -> Path | None:
+        """Crop the scanner's background from a wide long-paper scan.
+
+        Long-paper mode scans the full 215.9 mm width even when the document
+        is narrower.  The feeder is left-aligned, so the right edge is the
+        scanner's uniform gray background.  Return a temporary trimmed copy,
+        or None when the page already fills the width.
+        """
+        try:
+            with Image.open(image) as opened:
+                opened.load()
+                rgb = opened.convert("RGB")
+                try:
+                    dpi = opened.info.get("dpi", (300.0, 300.0))
+                    background = rgb.getpixel((rgb.width - 1, 0))
+                    if min(background) > 240:
+                        return None
+                    difference = ImageChops.difference(
+                        rgb, Image.new("RGB", rgb.size, background)
+                    )
+                    try:
+                        mask = difference.convert("L").point(
+                            lambda value: 255 if value > 20 else 0
+                        )
+                        bbox = mask.getbbox()
+                    finally:
+                        difference.close()
+                    if bbox is None:
+                        return None
+                    left, top, right, bottom = bbox
+                    padding = 12
+                    left = max(0, left - padding)
+                    top = max(0, top - padding)
+                    right = min(rgb.width, right + padding)
+                    bottom = min(rgb.height, bottom + padding)
+                    if (left, top, right, bottom) == (0, 0, rgb.width, rgb.height):
+                        return None
+                    trimmed = rgb.crop((left, top, right, bottom))
+                    try:
+                        temporary = job / f".{identity}.trimmed-{time.monotonic_ns()}.png"
+                        trimmed.save(temporary, format="PNG", dpi=dpi)
+                        return temporary
+                    finally:
+                        trimmed.close()
+                finally:
+                    rgb.close()
+        except (OSError, ValueError):
+            return None
+
     def _deliver(self, image: Path, job: Path, session_id: str) -> Path:
         identity = self._identity(image)
         page_stem = Path(identity).stem
@@ -220,6 +293,10 @@ class ScanDaemon:
             copy = job / f".{identity}.snapshot-{time.monotonic_ns()}"
             shutil.copy2(image, copy)
             source = copy
+        elif self.config.scanner.long_paper:
+            copy = self._trimmed_image(image, job, identity)
+            if copy is not None:
+                source = copy
         try:
             self._image_to_pdf(source, output, truncated=truncated)
             marker.write_text(str(output), encoding="utf-8")

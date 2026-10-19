@@ -80,9 +80,13 @@ resolution = 300
 mode = ""
 source = ""
 auto_document_size = true
-scan_timeout_seconds = 60.0
+scan_timeout_seconds = 180.0
 extra_args = []
 part_settle_seconds = 5.0
+long_paper = false
+long_paper_paper_type = 24
+long_paper_width_mm = 215.9
+max_document_length_mm = 1828.8
 
 [output]
 directory = "~/Scans/Inbox"
@@ -100,6 +104,35 @@ Automatic document sizing is enabled by default. It works with ordinary scans;
 version 1.2 replaces the old ATCN continuous-feed workaround that prevented it.
 Set `auto_document_size = false` if you deliberately need the full scan area.
 Auto sizing requires 400 DPI or lower on this model; the default is 300 DPI.
+
+### Long documents and receipts (up to 72 inches)
+
+The Linux `brscan5` SANE frontend normally caps the scan height at
+**355.6 mm (14 in)**, even though the DS-640 firmware supports simplex long
+paper up to **1828.8 mm (72 in)**. With `long_paper = true`, the installer's
+small preload shim enables the driver's built-in long-paper mode for scan
+sessions only; the sensor worker and normal mode are unchanged.
+
+```toml
+[scanner]
+long_paper = true
+# 23 = narrow (107.95 mm), 24 = full scanner width (215.9 mm)
+long_paper_paper_type = 24
+long_paper_width_mm = 215.9
+max_document_length_mm = 1828.8
+```
+
+Long-paper mode scans the full width selected above, so a narrow receipt is
+captured with background on the right. The daemon trims that uniform scanner
+background from the finished image before writing the PDF. The scanner's
+physical opening is 8.5 in wide; feed long documents with their long dimension
+along the feed path, left-aligned, and move the document guide against the
+right edge. Long paper is simplex only and requires 300 DPI or lower. Brother
+still recommends a Carrier Sheet for flimsy receipts.
+
+The shim lives at `~/.local/lib/brother-ds640/libds640_longpaper.so` and is
+built by `install.sh`. Set `long_paper = false` to return to the normal 14 in
+auto-sized behavior.
 
 The paper query uses an undocumented API in the bundled, checksum-verified
 brscan5 1.5.1-0 driver. A separate worker contains driver failures and polls at
