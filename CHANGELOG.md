@@ -18,7 +18,7 @@
 - Add unit coverage for long-paper configuration, preload environment, scan
   height, and background trimming.
 
-Validation: 32 unit tests; a live DS-640 receipt 15.5 in long was captured at
+Validation: 33 unit tests; a live DS-640 receipt 15.5 in long was captured at
 300 DPI as a 981 x 4650 image, trimmed to 3.27 x 15.5 in, and saved as a PDF
 through the installed service with exit 0.
 

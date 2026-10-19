@@ -55,6 +55,17 @@ class ImageRecoveryTests(unittest.TestCase):
 
             self.assertIsNone(ScanDaemon._trimmed_image(image, root, "page"))
 
+    def test_long_paper_trim_skips_dark_corner_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / "page.png"
+            picture = Image.new("RGB", (600, 900), "white")
+            draw = ImageDraw.Draw(picture)
+            draw.rectangle((500, 0, 599, 100), fill=(20, 20, 20))
+            picture.save(image, format="PNG", dpi=(300, 300))
+
+            self.assertIsNone(ScanDaemon._trimmed_image(image, root, "page"))
+
     def test_recovered_pdf_is_atomic_and_preserves_dpi(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

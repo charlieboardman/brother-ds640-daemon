@@ -227,13 +227,24 @@ class ScanDaemon:
             ImageFile.LOAD_TRUNCATED_IMAGES = old_setting
 
     @staticmethod
+    def _is_scanner_background(color: tuple[int, ...]) -> bool:
+        red, green, blue = color[:3]
+        return (
+            140 <= red <= 225
+            and 140 <= green <= 225
+            and 140 <= blue <= 225
+            and max(red, green, blue) - min(red, green, blue) <= 30
+        )
+
+    @staticmethod
     def _trimmed_image(image: Path, job: Path, identity: str) -> Path | None:
         """Crop the scanner's background from a wide long-paper scan.
 
         Long-paper mode scans the full 215.9 mm width even when the document
         is narrower.  The feeder is left-aligned, so the right edge is the
         scanner's uniform gray background.  Return a temporary trimmed copy,
-        or None when the page already fills the width.
+        or None when the page already fills the width or the corner is not
+        the scanner background.
         """
         try:
             with Image.open(image) as opened:
@@ -242,7 +253,7 @@ class ScanDaemon:
                 try:
                     dpi = opened.info.get("dpi", (300.0, 300.0))
                     background = rgb.getpixel((rgb.width - 1, 0))
-                    if min(background) > 240:
+                    if not ScanDaemon._is_scanner_background(background):
                         return None
                     difference = ImageChops.difference(
                         rgb, Image.new("RGB", rgb.size, background)
